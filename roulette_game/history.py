@@ -80,7 +80,7 @@ if __name__ == '__main__':
     print("--- History and Pending Bets Demonstration ---")
 
     # Test record_round_result and get_round_info
-    test_round_id_1 = "tableA_20231027100000_1"
+    test_round_id_1 = "tableA_20231027100000_1" # Using a more structured ID
     test_winning_slot_1 = {"value": "10", "color": "black"}
     record_round_result(test_round_id_1, "tableA", test_winning_slot_1)
 
