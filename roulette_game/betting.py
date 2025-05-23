@@ -29,7 +29,7 @@ def place_bet(user_id, table_id, round_id):
     current_balance = get_balance(user_id)
     if current_balance is None:
         print(f"User '{user_id}' not found. Cannot place bet.")
-        return False 
+        return False # Indicates no bet was placed
 
     table_config = get_table(table_id)
     if table_config is None:
@@ -40,17 +40,18 @@ def place_bet(user_id, table_id, round_id):
     max_bet = table_config["max_bet"]
 
     bets_placed_this_turn_count = 0
-    while True: 
+    while True: # Loop for placing multiple bets
         print(f"\nPlace your bet for round {round_id}, {user_id}, at table '{table_config['name']}' (Balance: {current_balance}).")
         print(f"Table limits: Min Bet: {min_bet}, Max Bet: {max_bet}.")
         
+        # Get bet amount
         bet_amount_val = None
         while True: # Loop for getting valid bet amount
             try:
                 amount_input_str = input(f"Enter bet amount (or 0 to finish betting for this round for user {user_id}): ")
                 bet_amount_val = int(amount_input_str)
                 if bet_amount_val == 0:
-                    break 
+                    break # User wants to skip or finish this betting session
                 if bet_amount_val < 0:
                     print("Bet amount must be positive.")
                     continue 
@@ -63,18 +64,19 @@ def place_bet(user_id, table_id, round_id):
                 if bet_amount_val > max_bet:
                     print(f"Bet amount {bet_amount_val} is above table maximum of {max_bet}.")
                     continue
-                break 
+                break # Bet amount is valid
             except ValueError:
                 print("Invalid amount. Please enter a number.")
         
-        if bet_amount_val == 0: 
+        if bet_amount_val == 0: # User chose to finish betting
             break 
 
+        # Get bet type
         bet_type_val = None
         while True: # Loop for getting valid bet type
             bet_type_input_val = input("Choose bet type ('number', 'color', 'even_odd'), or type 'cancel' to cancel this specific bet: ").lower().strip()
             if bet_type_input_val == 'cancel':
-                break 
+                break # Cancel this specific bet attempt
             if bet_type_input_val in ['number', 'color', 'even_odd']:
                 bet_type_val = bet_type_input_val
                 break
@@ -82,10 +84,11 @@ def place_bet(user_id, table_id, round_id):
         
         if bet_type_input_val == 'cancel':
             if input("Place a different bet instead? (yes/no): ").lower().strip() != 'yes':
-                break 
+                break # Finish betting for this user this round
             else:
-                continue 
+                continue # Restart loop for a new bet
 
+        # Get bet value
         bet_value_val = None
         if bet_type_val == 'number':
             while True:
@@ -115,7 +118,7 @@ def place_bet(user_id, table_id, round_id):
                     break
                 print("Invalid choice. Please enter 'even' or 'odd'.")
 
-        # Debit user's balance (Subtask 4 - wallet.py's adjust_balance does NOT mirror to casino yet)
+        # Debit user's balance (Subtask 4 - wallet.py's adjust_balance does NOT yet mirror to casino)
         if not adjust_balance(user_id, -bet_amount_val):
             print(f"Error: Could not deduct bet amount for {user_id}. Bet not placed.")
             continue 
@@ -169,7 +172,6 @@ def check_bet(bet_details, winning_slot): # Signature from Subtask 6
     return 0 
 
 # Main round playing function as of end of Subtask 6
-# Handles a single user's turn for a round, including placing multiple bets for that round.
 def play_round(user_id, table_id): # Name from Subtask 4/5, logic from Subtask 6
     table_config = get_table(table_id) # Subtask 5
     if not table_config:
@@ -247,7 +249,7 @@ if __name__ == '__main__':
 
     # Player Bob plays a round (this will be a new, separate round)
     print(f"\n>>> Simulating a round for {player_s6_b} at table 's6_table1' <<<")
-    r_id_2 = play_round(player_s6_b, "s6_table1")
+    r_id_2 = play_round(player_s6_b, "s6_table1") 
     if r_id_2:
         print(f"Round {r_id_2} for {player_s6_b} completed. Balance: {get_balance(player_s6_b)}")
     
@@ -263,23 +265,23 @@ if __name__ == '__main__':
     # even though play_round above processes bets for only the user who initiated that play_round call.
     # The actual processing of a single round with multiple users' bets is a Subtask 7 feature.
     
-    shared_round_id = generate_round_id("s6_table1")
-    print(f"Generated shared round ID for 's6_table1': {shared_round_id}")
+    shared_round_id_concept = generate_round_id("s6_table1")
+    print(f"Generated shared round ID for 's6_table1': {shared_round_id_concept}")
     
-    print(f"... {player_s6_a} places bets for shared round {shared_round_id} ...")
+    print(f"... {player_s6_a} places bets for {shared_round_id_concept} ...")
     # Simulate placing a bet (user will be prompted)
-    place_bet(player_s6_a, "s6_table1", shared_round_id) 
+    place_bet(player_s6_a, "s6_table1", shared_round_id_concept) 
     
-    print(f"... {player_s6_b} places bets for shared round {shared_round_id} ...")
+    print(f"... {player_s6_b} places bets for {shared_round_id_concept} ...")
     # Simulate placing a bet (user will be prompted)
-    place_bet(player_s6_b, "s6_table1", shared_round_id)
+    place_bet(player_s6_b, "s6_table1", shared_round_id_concept)
     
-    print(f"All bets stored for conceptual shared round {shared_round_id}: {get_bets_for_round(shared_round_id)}")
-    # These bets are stored but not processed by the play_round calls above.
+    print(f"All bets stored for conceptual shared round {shared_round_id_concept}: {get_bets_for_round(shared_round_id_concept)}")
+    # Note: This conceptual round's bets are not processed by the play_round calls above.
     # A Subtask 7 function (play_multi_user_round) would process these.
     # For cleanup in this demo:
-    clear_bets_for_round(shared_round_id) 
-    print(f"Bets for {shared_round_id} cleared for this demo.")
+    clear_bets_for_round(shared_round_id_concept) 
+    print(f"Bets for {shared_round_id_concept} cleared for this demo.")
 
 
     print("\n--- Viewing Past Round Results (Subtask 6 Demo) ---")
