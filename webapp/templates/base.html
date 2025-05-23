@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Roulette Royale{% endblock %}</title>
+    <!-- Link to a CSS file if you create one in static/ -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" >
+</head>
+<body>
+    <header>
+        <h1>Roulette Royale</h1>
+        <nav>
+            <a href="{{ url_for('main.index') }}">Home</a>
+            <!-- More nav links will go here: Login, Register, Dashboard etc. -->
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <p>&copy; 2023 Roulette Royale. For entertainment purposes only.</p>
+    </footer>
+</body>
+</html>

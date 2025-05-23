@@ -1,11 +1,10 @@
 # This file will contain functions for placing bets and determining winners.
 import uuid
 import datetime
-from roulette_game.wheel import spin_wheel, CURRENT_WHEEL as ACTIVE_WHEEL 
-# For Subtask 6, wallet.py does not yet have CASINO_WALLET_ID or initialize_casino_wallet
-# The adjust_balance used here is the one from Subtask 4 (no casino mirroring).
-from roulette_game.wallet import get_balance, adjust_balance, create_user, deposit 
-from roulette_game.tables import get_table, list_tables as list_game_tables, create_table as create_game_table 
+from roulette_game.wheel import spin_wheel, CURRENT_WHEEL as ACTIVE_WHEEL
+# Subtask 7: Import casino wallet functionalities
+from roulette_game.wallet import get_balance, adjust_balance, create_user, deposit, initialize_casino_wallet, CASINO_WALLET_ID
+from roulette_game.tables import get_table, list_tables as list_game_tables, create_table as create_game_table
 from roulette_game.history import (
     record_round_result, get_round_info, 
     store_bet_for_round, get_bets_for_round, clear_bets_for_round
@@ -123,14 +122,15 @@ def place_bet(user_id, table_id, round_id):
             print(f"Error: Could not deduct bet amount for {user_id}. Bet not placed.")
             continue 
 
-        bet_details_to_store = {
+        bet_details_to_pass_to_history = {
             "user_id": user_id,
             "type": bet_type_val,
             "value": bet_value_val,
-            "amount": bet_amount_val,
-            "encrypted_bet": f"conceptually_encrypted_data_for_{user_id}_bet_on_{bet_value_val}" # Subtask 6
+            "amount": bet_amount_val
+            # The "encrypted_bet" placeholder field is REMOVED.
+            # history.py's store_bet_for_round will handle the actual encryption.
         }
-        store_bet_for_round(round_id, bet_details_to_store) # Subtask 6
+        store_bet_for_round(round_id, bet_details_to_pass_to_history) # Updated for Subtask 8
         current_balance = get_balance(user_id) 
         print(f"Bet of {bet_amount_val} on {bet_type_val} '{bet_value_val}' stored for round {round_id}. Balance now: {current_balance}")
         bets_placed_this_turn_count += 1
@@ -171,130 +171,186 @@ def check_bet(bet_details, winning_slot): # Signature from Subtask 6
             return 0             
     return 0 
 
-# Main round playing function as of end of Subtask 6
-def play_round(user_id, table_id): # Name from Subtask 4/5, logic from Subtask 6
-    table_config = get_table(table_id) # Subtask 5
+# Renamed from play_round and refactored for multi-user and round summaries (Subtask 7)
+def play_multi_user_round(table_id, list_of_player_user_ids):
+    """
+    Manages a complete round of roulette for a list of players at a specific table.
+    - Generates a round ID.
+    - Allows each player to place bets. (Users' balances are debited, casino credited by adjust_balance in place_bet)
+    - Spins the wheel and records the result.
+    - Processes bets, calculates payouts, and updates user balances. (Users' balances credited, casino debited for wins by adjust_balance)
+    - Calculates and prints round summary statistics.
+    - Clears processed bets.
+
+    Args:
+        table_id (str): The ID of the table where the game is played.
+        list_of_player_user_ids (list): A list of user_ids participating.
+
+    Returns:
+        str or None: The round_id if the round was played, None otherwise.
+    """
+    table_config = get_table(table_id)
     if not table_config:
         print(f"Error: Table '{table_id}' could not be found. Skipping round.")
-        return None 
+        return None
 
-    current_round_id = generate_round_id(table_id) # Subtask 6
-    initial_user_balance = get_balance(user_id)
-    print(f"\n--- New Round Starting (ID: {current_round_id}) for user {user_id} at '{table_config['name']}' (Balance: {initial_user_balance}) ---")
+    current_round_id = generate_round_id(table_id)
+    timestamp_start_iso = datetime.datetime.now().isoformat() # Added for Subtask 9b
+    print(f"\n--- Starting Round: {current_round_id} at Table: '{table_config['name']}' ---")
 
-    # Betting phase for the single user (Subtask 6 allows multiple bets via place_bet's internal loop)
-    if not place_bet(user_id, table_id, current_round_id):
-        print(f"User {user_id} did not place any bets for round {current_round_id}.")
-        print("--- Round End (no bets placed) ---\n")
-        # Optionally record this round in history even if no bets, or just return.
-        # For now, returning round_id for consistency.
+    # Betting Phase
+    for user_id in list_of_player_user_ids:
+        player_balance = get_balance(user_id)
+        if player_balance is None:
+            print(f"Player {user_id} not found. Skipping their turn to bet.")
+            continue
+        
+        min_bet_for_table = table_config.get("min_bet", 1) 
+        if player_balance < min_bet_for_table:
+            print(f"Player {user_id} has insufficient balance ({player_balance}) for min bet ({min_bet_for_table}) at this table. Skipping their turn to bet.")
+            continue
+        
+        print(f"\nPlayer {user_id}, it's your turn to bet (Balance: {player_balance}).")
+        # place_bet handles its own loop for multiple bets by one user for the current round
+        # It now uses the casino-aware adjust_balance from the updated wallet.py
+        place_bet(user_id, table_id, current_round_id) 
+
+    print(f"\n--- Betting phase for round {current_round_id} ended. ---")
+
+    current_round_bets = get_bets_for_round(current_round_id)
+    if not current_round_bets: 
+        print(f"No bets were placed by any player for round {current_round_id}. Round concluded without a spin.")
+        winning_slot = spin_wheel() 
+        print(f"Wheel is spinning for round {current_round_id}...")
+        print(f"The wheel landed on: {winning_slot['value']} ({winning_slot['color']})")
+        record_round_result(current_round_id, table_id, winning_slot, timestamp_start_iso) # Added timestamp_start_iso
+        print("\n--- Round Summary ---")
+        print(f"Round ID: {current_round_id}")
+        print(f"Winning Slot: {winning_slot['value']} ({winning_slot['color']})")
+        print(f"Total Amount Staked by Players this Round: 0")
+        print(f"Total Amount Paid Out to Players this Round: 0")
+        print(f"Casino Net Profit/Loss for this Round: 0")
+        casino_balance = get_balance(CASINO_WALLET_ID)
+        print(f"Casino Wallet Balance After Round: {casino_balance if casino_balance is not None else 'N/A - Casino Wallet Not Initialized?'}")
+        clear_bets_for_round(current_round_id) 
+        print(f"\n--- Round {current_round_id} at table '{table_config['name']}' ended. ---")
         return current_round_id 
-            
-    print(f"\n--- Betting phase for round {current_round_id} by user {user_id} ended. ---")
-    
-    winning_slot = spin_wheel() # Uses CURRENT_WHEEL from wheel.py (Subtask 3)
+
+    winning_slot = spin_wheel() 
     print(f"Wheel is spinning for round {current_round_id}...")
     print(f"The wheel landed on: {winning_slot['value']} ({winning_slot['color']})")
 
-    record_round_result(current_round_id, table_id, winning_slot) # Subtask 6
+    record_round_result(current_round_id, table_id, winning_slot, timestamp_start_iso) # Added timestamp_start_iso
 
-    # Process only this user's bets for this round (Subtask 6)
-    # (though place_bet as structured only adds for the current user_id anyway)
-    bets_for_this_user_in_round = [
-        bet for bet in get_bets_for_round(current_round_id) if bet['user_id'] == user_id
-    ]
+    total_staked_this_round = sum(bet['amount'] for bet in current_round_bets)
+    total_winnings_paid_this_round = 0
 
-    if not bets_for_this_user_in_round:
-        print(f"No bets were actually stored for user {user_id} in round {current_round_id}.")
-    else:
-        print(f"\n--- Processing {len(bets_for_this_user_in_round)} bets for user {user_id} in round {current_round_id} ---")
-        for bet in bets_for_this_user_in_round:
-            payout_multiplier = check_bet(bet, winning_slot) # Returns multiplier (Subtask 4)
-            if payout_multiplier > 0:
-                winnings_to_credit = payout_multiplier * bet['amount']
-                # adjust_balance from Subtask 4 (no casino mirroring yet)
-                adjust_balance(bet['user_id'], winnings_to_credit) 
-                print(f"User {bet['user_id']}: Bet on {bet['type']} '{bet['value']}' ({bet['amount']}) WON! Received: {winnings_to_credit}. Balance: {get_balance(bet['user_id'])}")
-            else:
-                print(f"User {bet['user_id']}: Bet on {bet['type']} '{bet['value']}' ({bet['amount']}) lost. Balance: {get_balance(bet['user_id'])}")
+    print(f"\n--- Processing {len(current_round_bets)} bets for round {current_round_id} ---")
+    # current_round_bets from get_bets_for_round should now be decrypted by history.py
+    for bet_detail in current_round_bets: 
+        payout_multiplier = check_bet(bet_detail, winning_slot) 
+        
+        if payout_multiplier > 0:
+            win_amount = payout_multiplier * bet_detail['amount']
+            adjust_balance(bet_detail['user_id'], win_amount) 
+            total_winnings_paid_this_round += win_amount
+            print(f"User {bet_detail['user_id']}: Bet on {bet_detail['type']} '{bet_detail['value']}' ({bet_detail['amount']}) WON! Received: {win_amount}. Balance: {get_balance(bet_detail['user_id'])}")
+        else:
+            print(f"User {bet_detail['user_id']}: Bet on {bet_detail['type']} '{bet_detail['value']}' ({bet_detail['amount']}) lost. Balance: {get_balance(bet_detail['user_id'])}")
+    
+    casino_net_for_round = total_staked_this_round - total_winnings_paid_this_round
+    
+    print(f"\n--- Round {current_round_id} Summary ---") 
+    print(f"Winning Number: {winning_slot['value']} ({winning_slot['color']})") 
+    print(f"Total Staked This Round: {total_staked_this_round}")
+    print(f"Total Winnings Paid Out This Round: {total_winnings_paid_this_round}")
+    print(f"Casino Net for Round: {casino_net_for_round}")
+    casino_balance = get_balance(CASINO_WALLET_ID)
+    print(f"Casino Wallet Balance After Round: {casino_balance if casino_balance is not None else 'N/A - Casino Wallet Not Initialized?'}")
     
     clear_bets_for_round(current_round_id) 
     
-    final_user_balance = get_balance(user_id)
-    print(f"\n--- Round {current_round_id} for user {user_id} at table '{table_config['name']}' ended. ---")
-    print(f"{user_id}'s final balance after round: {final_user_balance}")
-    print("--- Round End ---\n")
+    print(f"\n--- Round {current_round_id} at table '{table_config['name']}' ended. ---")
     return current_round_id
 
-
 if __name__ == '__main__':
-    # End of Subtask 6: Demonstrates round management, history, and single player rounds.
-    # Casino wallet and multi-user round processing with summaries are for Subtask 7.
+    initialize_casino_wallet() # Subtask 7: Initialize casino wallet
 
-    print("--- Admin: Setting up tables (Subtask 6 Demo Style) ---")
-    create_game_table("s6_table1", "Subtask 6 Table A", min_bet=5, max_bet=50)
-    create_game_table("s6_table2", "Subtask 6 Table B", min_bet=20, max_bet=200)
+    print("--- Admin: Setting up tables (Subtask 7 Demo Style) ---")
+    create_game_table("s7_table1", "Lucky Table", min_bet=10, max_bet=100)
+    create_game_table("s7_table2", "Whale Table", min_bet=200, max_bet=2000)
     print("--- Table setup complete ---\n")
 
-    player_s6_a = "player_S6_Alice"
-    player_s6_b = "player_S6_Bob"
-    create_user(player_s6_a, 250)
-    create_user(player_s6_b, 180)
+    player_ids_s7 = ["player_X", "player_Y", "player_Z"]
+    create_user(player_ids_s7[0], 500)
+    create_user(player_ids_s7[1], 300)
+    create_user(player_ids_s7[2], 60) # Balance to test min bet at s7_table1
 
-    # Player Alice plays a round
-    print(f"\n>>> Simulating a round for {player_s6_a} at table 's6_table1' <<<")
-    r_id_1 = play_round(player_s6_a, "s6_table1")
-    if r_id_1:
-        print(f"Round {r_id_1} for {player_s6_a} completed. Balance: {get_balance(player_s6_a)}")
+    print(f"Initial Casino Balance: {get_balance(CASINO_WALLET_ID)}")
+    for p_id in player_ids_s7:
+        print(f"Initial Balance for {p_id}: {get_balance(p_id)}")
 
-    # Player Bob plays a round (this will be a new, separate round)
-    print(f"\n>>> Simulating a round for {player_s6_b} at table 's6_table1' <<<")
-    r_id_2 = play_round(player_s6_b, "s6_table1") 
-    if r_id_2:
-        print(f"Round {r_id_2} for {player_s6_b} completed. Balance: {get_balance(player_s6_b)}")
+    # --- Gameplay Simulation ---
+    print("\n\n--- SIMULATING ROUND 1 (Table s7_table1: all players) ---")
+    round1_id_s7 = play_multi_user_round("s7_table1", player_ids_s7)
+    if round1_id_s7:
+        print(f"Round 1 ({round1_id_s7}) completed.")
+        # Optional: Peek into history.pending_bets to verify encryption (conceptual)
+        # This is for testing/verification and would not be in production.
+        # from roulette_game import history # For direct inspection
+        # print(f"DEBUG: Raw pending bets for {round1_id_s7} in history: {history.pending_bets.get(round1_id_s7, 'Not found or cleared')}")
+
+        for p_id in player_ids_s7: 
+             player_bal = get_balance(p_id)
+             if player_bal is not None: 
+                print(f"Player {p_id} final balance: {player_bal}")
+        print(f"Casino balance after round 1: {get_balance(CASINO_WALLET_ID)}")
+
+    print("\n\n--- SIMULATING ROUND 2 (Table s7_table2: player_X only) ---")
+    # Ensure player_X has enough for high roller table
+    if get_balance(player_ids_s7[0]) < get_table("s7_table2")["min_bet"]:
+        print(f"Admin: Topping up {player_ids_s7[0]}'s balance for VIP table.")
+        adjust_balance(player_ids_s7[0], get_table("s7_table2")["min_bet"] * 2) 
+        print(f"{player_ids_s7[0]} new balance: {get_balance(player_ids_s7[0])}")
     
-    # Player Alice plays another round, this time at a different table
-    print(f"\n>>> Simulating a round for {player_s6_a} at table 's6_table2' <<<")
-    r_id_3 = play_round(player_s6_a, "s6_table2")
-    if r_id_3:
-        print(f"Round {r_id_3} for {player_s6_a} completed. Balance: {get_balance(player_s6_a)}")
+    round2_id_s7 = play_multi_user_round("s7_table2", [player_ids_s7[0]])
+    if round2_id_s7:
+        print(f"Round 2 ({round2_id_s7}) completed.")
+        player_bal = get_balance(player_ids_s7[0])
+        if player_bal is not None:
+            print(f"Player {player_ids_s7[0]} final balance: {player_bal}")
+        print(f"Casino balance after round 2: {get_balance(CASINO_WALLET_ID)}")
+            
+    print("\n\n--- SIMULATING ROUND 3 (Table s7_table1: player_Y, player_Z) ---")
+    round3_players_s7 = [player_ids_s7[1], player_ids_s7[2]]
+    for p_id in round3_players_s7: 
+        current_player_balance = get_balance(p_id)
+        if current_player_balance is not None and current_player_balance < get_table("s7_table1")["min_bet"]:
+             print(f"Admin: Topping up {p_id}'s balance for table s7_table1.")
+             adjust_balance(p_id, get_table("s7_table1")["min_bet"] * 2)
+             print(f"{p_id} new balance: {get_balance(p_id)}")
 
+    round3_id_s7 = play_multi_user_round("s7_table1", round3_players_s7)
+    if round3_id_s7:
+        print(f"Round 3 ({round3_id_s7}) completed.")
+        for p_id in round3_players_s7:
+            player_bal = get_balance(p_id)
+            if player_bal is not None:
+                print(f"Player {p_id} final balance: {player_bal}")
+        print(f"Casino balance after round 3: {get_balance(CASINO_WALLET_ID)}")
 
-    print("\n--- Conceptual: Storing multiple user bets for a single future round ID (Subtask 6 context) ---")
-    # This section demonstrates that multiple bets for different users *can* be stored for the same round_id,
-    # even though play_round above processes bets for only the user who initiated that play_round call.
-    # The actual processing of a single round with multiple users' bets is a Subtask 7 feature.
+    # --- User Viewing Past Round Results ---
+    print("\n\n--- View Past Round Results Example ---")
+    if round1_id_s7: 
+        print(f"Viewing details for Round 1 ({round1_id_s7}): {get_round_info(round1_id_s7)}")
+    if round2_id_s7:
+        print(f"Viewing details for Round 2 ({round2_id_s7}): {get_round_info(round2_id_s7)}")
+    if round3_id_s7:
+        print(f"Viewing details for Round 3 ({round3_id_s7}): {get_round_info(round3_id_s7)}")
     
-    shared_round_id_concept = generate_round_id("s6_table1")
-    print(f"Generated shared round ID for 's6_table1': {shared_round_id_concept}")
-    
-    print(f"... {player_s6_a} places bets for {shared_round_id_concept} ...")
-    # Simulate placing a bet (user will be prompted)
-    place_bet(player_s6_a, "s6_table1", shared_round_id_concept) 
-    
-    print(f"... {player_s6_b} places bets for {shared_round_id_concept} ...")
-    # Simulate placing a bet (user will be prompted)
-    place_bet(player_s6_b, "s6_table1", shared_round_id_concept)
-    
-    print(f"All bets stored for conceptual shared round {shared_round_id_concept}: {get_bets_for_round(shared_round_id_concept)}")
-    # Note: This conceptual round's bets are not processed by the play_round calls above.
-    # A Subtask 7 function (play_multi_user_round) would process these.
-    # For cleanup in this demo:
-    clear_bets_for_round(shared_round_id_concept) 
-    print(f"Bets for {shared_round_id_concept} cleared for this demo.")
-
-
-    print("\n--- Viewing Past Round Results (Subtask 6 Demo) ---")
-    if r_id_1:
-        print(f"Details for Round {r_id_1}: {get_round_info(r_id_1)}")
-    if r_id_2:
-        print(f"Details for Round {r_id_2}: {get_round_info(r_id_2)}")
-    if r_id_3:
-        print(f"Details for Round {r_id_3}: {get_round_info(r_id_3)}")
-    # For the shared_round_id, a result wasn't recorded as it wasn't "played" by play_round.
-    # If it had been, get_round_info(shared_round_id) would show it.
-
-
-    print("\n--- Final Balances (End of Subtask 6 Demo) ---")
-    print(f"{player_s6_a}: {get_balance(player_s6_a)}")
-    print(f"{player_s6_b}: {get_balance(player_s6_b)}")
+    print("\n--- Final Balances After All Rounds (Subtask 7 Demo) ---")
+    for p_id in player_ids_s7:
+        player_bal = get_balance(p_id)
+        if player_bal is not None:
+            print(f"Player {p_id}: {player_bal}")
+    print(f"Casino ({CASINO_WALLET_ID}): {get_balance(CASINO_WALLET_ID)}")
